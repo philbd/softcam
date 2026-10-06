@@ -1,0 +1,50 @@
+name: Build softcam x64 artifact
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-artifact.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore ./softcam.sln
+
+      - name: Build softcam (Release x64)
+        run: msbuild /m /p:Configuration=Release /p:Platform=x64 ./softcam.sln
+
+      - name: Core and DLL tests
+        run: |
+          x64/Release/core_tests.exe
+          x64/Release/dll_tests.exe
+
+      - name: Build softcam_installer (Release x64)
+        run: msbuild /m /p:Configuration=Release /p:Platform=x64 ./examples/softcam_installer/softcam_installer.sln
+
+      - name: Package with the layout the .bat files expect
+        shell: pwsh
+        run: |
+          $o = "out/softcam"
+          New-Item -ItemType Directory -Force "$o/dist/bin/x64" | Out-Null
+          New-Item -ItemType Directory -Force "$o/examples/softcam_installer/x64/Release" | Out-Null
+          Copy-Item dist/bin/x64/softcam.dll "$o/dist/bin/x64/"
+          Copy-Item examples/softcam_installer/x64/Release/softcam_installer.exe "$o/examples/softcam_installer/x64/Release/"
+          Copy-Item examples/softcam_installer/RegisterSoftcam.bat "$o/examples/softcam_installer/"
+          Copy-Item examples/softcam_installer/UnregisterSoftcam.bat "$o/examples/softcam_installer/"
+          Copy-Item LICENSE "$o/"
+          Set-Content "$o/SOURCE_COMMIT.txt" "${{ github.sha }}"
+          Get-ChildItem -Recurse -File $o | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name } | Set-Content "$o/SHA256SUMS.txt"
+          Get-Content "$o/SHA256SUMS.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: softcam-x64-release
+          path: out/
